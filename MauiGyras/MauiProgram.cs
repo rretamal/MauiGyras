@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using MauiGyras.Services;
+using Microsoft.Extensions.Logging;
 using SkiaSharp.Views.Maui.Controls.Hosting;
 
 namespace MauiGyras
@@ -19,6 +20,16 @@ namespace MauiGyras
 
 #if DEBUG
     		builder.Logging.AddDebug();
+#endif
+
+            builder.Services.AddTransient<MainPage>();
+
+            // Register the VoiceRecognitionService
+            builder.Services.AddTransient<MainPage>();
+
+#if ANDROID
+            builder.Services.AddSingleton<MauiGyras.Platforms.Android.AndroidVoiceRecognitionService>();
+            builder.Services.AddSingleton<IVoiceRecognitionService, MauiGyras.Platforms.Android.SpeechToTextImplementation>();
 #endif
 
             return builder.Build();

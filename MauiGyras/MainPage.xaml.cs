@@ -1,5 +1,8 @@
-﻿using SkiaSharp;
+﻿using MauiGyras.Services;
+using SkiaSharp;
 using System;
+using System.Collections.Concurrent;
+using System.Globalization;
 
 namespace MauiGyras
 {
@@ -11,13 +14,71 @@ namespace MauiGyras
         private float cameraRotationX, cameraRotationY;
         private Random random = new Random();
         private float baseSpeed = 20f;
-        public MainPage()
+        private readonly IVoiceRecognitionService _voiceRecognitionService;
+        private CancellationTokenSource tokenSource = new CancellationTokenSource();
+        private List<Shot> activeShots = new List<Shot>();
+        private ConcurrentQueue<DateTime> pewTimes = new ConcurrentQueue<DateTime>();
+        private const double PewCooldown = 250; // milliseconds
+
+        public MainPage(IVoiceRecognitionService voiceRecognitionService)
         {
             InitializeComponent();
-            canvasView.PaintSurface += CanvasView_PaintSurface;
 
+            _voiceRecognitionService = voiceRecognitionService;
+            canvasView.PaintSurface += CanvasView_PaintSurface;
+           
             InitializeStars();
             InitializeSensors();
+        }
+
+        private void _voiceRecognitionService_OnSpeechRecognized(object? sender, string e)
+        {
+            var words = e.ToLower().Split(' ');
+            foreach (var word in words)
+            {
+                if (word.Contains("pew"))
+                {
+                    pewTimes.Enqueue(DateTime.Now);
+                }
+            }
+        }
+
+        override protected async void OnAppearing()
+        {
+            base.OnAppearing();
+            await _voiceRecognitionService.RequestPermissions();
+            _= _voiceRecognitionService.Listen(CultureInfo.GetCultureInfo("en-us"), new Progress<string>(partialText =>
+            {
+                listenedText = partialText;
+
+                if (!string.IsNullOrEmpty(listenedText))
+                {
+                    System.Diagnostics.Debug.WriteLine("*** partialText ***");
+                    System.Diagnostics.Debug.WriteLine(partialText);
+
+                    _voiceRecognitionService_OnSpeechRecognized(this, partialText);
+
+                    OnPropertyChanged(nameof(listenedText));
+                }
+            }), tokenSource.Token);
+
+            Dispatcher.StartTimer(TimeSpan.FromMilliseconds(16), () =>
+            {
+                MainThread.BeginInvokeOnMainThread(() =>
+                {
+                    ProcessPewQueue();
+                    canvasView.InvalidateSurface();
+                });
+                return true; // Return true to keep the timer running
+            });
+        }
+
+        private void OnSpeechRecognized(object sender, string result)
+        {
+            Device.BeginInvokeOnMainThread(() =>
+            {
+                //RecognizedTextLabel.Text = result;
+            });
         }
 
         private void CanvasView_PaintSurface(object? sender, SkiaSharp.Views.Maui.SKPaintSurfaceEventArgs e)
@@ -62,6 +123,36 @@ namespace MauiGyras
 
             // Draw ship
             DrawSpaceship(canvas, info.Width / 2, info.Height / 2);
+
+            // Draw shots
+            using (var shotPaint = new SKPaint { Color = SKColors.Red, StrokeWidth = 10 })
+            {
+                for (int i = activeShots.Count - 1; i >= 0; i--)
+                {
+                    var shot = activeShots[i];
+
+                    canvas.DrawLine(shot.X, shot.Y, shot.X, shot.Y - 30, shotPaint);
+
+                    shot.Move();
+
+                    if (shot.Y < 0)
+                    {
+                        activeShots.RemoveAt(i);
+                        Console.WriteLine("Shoot deleted");
+                    }
+                }
+            }
+
+            // Draw an indicator
+            using (var textPaint = new SKPaint
+            {
+                Color = SKColors.White,
+                TextSize = 30,
+                IsAntialias = true
+            })
+            {
+                canvas.DrawText($"Active shoots: {activeShots.Count}", 10, 30, textPaint);
+            }
 
             // Motion Indicator
             using (var paint = new SKPaint
@@ -199,6 +290,86 @@ namespace MauiGyras
             canvas.Restore();
         }
 
+        private void ProcessPewQueue()
+        {
+            while (pewTimes.TryPeek(out DateTime pewTime))
+            {
+                if ((DateTime.Now - pewTime).TotalMilliseconds >= PewCooldown)
+                {
+                    pewTimes.TryDequeue(out _);
+                    FireShip();
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        private async Task FireShip()
+        {
+            float centerX = canvasView.CanvasSize.Width / 2;
+            float centerY = canvasView.CanvasSize.Height / 2;
+            activeShots.Add(new Shot(centerX, centerY));
+            Console.WriteLine($"Shoot added on: ({centerX}, {centerY})");
+            MainThread.BeginInvokeOnMainThread(() => canvasView.InvalidateSurface());
+        }
+
+        string listenedText = string.Empty;
+        private async void Listen()
+        {
+            var isAuthorized = await _voiceRecognitionService.RequestPermissions();
+            if (isAuthorized)
+            {
+                try
+                {
+                    listenedText = await _voiceRecognitionService.Listen(CultureInfo.GetCultureInfo("en-us"),
+                        new Progress<string>(partialText =>
+                        {
+                            if (DeviceInfo.Platform == DevicePlatform.Android)
+                            {
+                                listenedText = partialText;
+                            }
+                            else
+                            {
+                                listenedText += partialText + " ";
+                            }
+
+                            OnPropertyChanged(nameof(listenedText));
+                        }), tokenSource.Token);
+                }
+                catch (Exception ex)
+                {
+                    await DisplayAlert("Error", ex.Message, "OK");
+                }
+            }
+            else
+            {
+                await DisplayAlert("Permission Error", "No microphone access", "OK");
+            }
+        }
+
+        private void ListenCancel()
+        {
+            tokenSource?.Cancel();
+        }
+
+        private class Shot
+        {
+            public float X, Y;
+            public const float Speed = 10f;
+
+            public Shot(float x, float y)
+            {
+                X = x;
+                Y = y;
+            }
+
+            public void Move()
+            {
+                Y -= Speed;
+            }
+        }
     }
 
 
