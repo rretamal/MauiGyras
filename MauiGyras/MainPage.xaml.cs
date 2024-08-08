@@ -1,4 +1,5 @@
-﻿using MauiGyras.Services;
+﻿using MauiGyras.Game;
+using MauiGyras.Services;
 using SkiaSharp;
 using System;
 using System.Collections.Concurrent;
@@ -23,6 +24,7 @@ namespace MauiGyras
         private const int EnemyCount = 3;
         private List<EnemyShip> enemies = new List<EnemyShip>();
         private List<Explosion> explosions = new List<Explosion>();
+        private List<RecognizedWord> recognizedWords = new List<RecognizedWord>();
 
         public MainPage(IVoiceRecognitionService voiceRecognitionService)
         {
@@ -45,6 +47,10 @@ namespace MauiGyras
                 {
                     pewTimes.Enqueue(DateTime.Now);
                 }
+
+                float x = (float)random.NextDouble() * canvasView.CanvasSize.Width;
+                float y = canvasView.CanvasSize.Height - 50; 
+                recognizedWords.Add(new RecognizedWord(word, x, y));
             }
         }
 
@@ -236,6 +242,9 @@ namespace MauiGyras
             {
                 canvas.DrawText($"Active explosions: {explosions.Count}", 10, 60, textPaint);
             }
+
+            // Draw recognized text
+            DrawRecognizedWords(e.Surface.Canvas, e.Info);
         }
 
         private void InitializeStars()
@@ -403,6 +412,35 @@ namespace MauiGyras
             }
         }
 
+        private void DrawRecognizedWords(SKCanvas canvas, SKImageInfo info)
+        {
+            using (var paint = new SKPaint
+            {
+                Color = SKColors.White,
+                TextSize = 30,
+                IsAntialias = true,
+                TextAlign = SKTextAlign.Center
+            })
+            {
+                for (int i = recognizedWords.Count - 1; i >= 0; i--)
+                {
+                    var word = recognizedWords[i];
+                    paint.Color = paint.Color.WithAlpha((byte)(255 * word.Opacity));
+                    canvas.Save();
+                    canvas.Scale(word.Scale);
+                    canvas.DrawText(word.Text, word.X / word.Scale, word.Y / word.Scale, paint);
+                    canvas.Restore();
+
+                    word.Update();
+
+                    if (word.Opacity <= 0 || word.Y < 0)
+                    {
+                        recognizedWords.RemoveAt(i);
+                    }
+                }
+            }
+        }
+
         private void UpdateGame()
         {
             // Update enemy positions and fire shots
@@ -432,6 +470,15 @@ namespace MauiGyras
 
             // Respawn enemies that are too far away
             RespawnEnemies();
+
+            for (int i = recognizedWords.Count - 1; i >= 0; i--)
+            {
+                recognizedWords[i].Update();
+                if (recognizedWords[i].Opacity <= 0 || recognizedWords[i].Y < 0)
+                {
+                    recognizedWords.RemoveAt(i);
+                }
+            }
         }
 
         private void ProcessPewQueue()

@@ -18,6 +18,9 @@ namespace MauiGyras.Platforms.Android
         private SpeechRecognizer _speechRecognizer;
         private Intent _recognizerIntent;
         private bool _isListening;
+        private List<string> _resultBuffer = new List<string>();
+        private const int BufferFlushInterval = 1000; // ms
+        private const int ReconnectionDelay = 1000; // ms
 
         public AndroidVoiceRecognitionService(ILogger<AndroidVoiceRecognitionService> logger)
         {
@@ -39,6 +42,9 @@ namespace MauiGyras.Platforms.Android
             InitializeSpeechRecognizer();
             CreateRecognizerIntent(culture);
             _speechRecognizer.StartListening(_recognizerIntent);
+
+            // Start buffer flushing
+            Task.Run(FlushBufferPeriodically);
         }
 
         public void StopListening()
@@ -63,7 +69,7 @@ namespace MauiGyras.Platforms.Android
         private void CreateRecognizerIntent(CultureInfo culture)
         {
             _recognizerIntent = new Intent(RecognizerIntent.ActionRecognizeSpeech);
-            _recognizerIntent.PutExtra(RecognizerIntent.ExtraLanguagePreference,Java.Util.Locale.Default);
+            _recognizerIntent.PutExtra(RecognizerIntent.ExtraLanguagePreference, Java.Util.Locale.Default);
 
             var javaLocale = Java.Util.Locale.ForLanguageTag(culture.Name);
             _recognizerIntent.PutExtra(RecognizerIntent.ExtraLanguage, javaLocale);
@@ -71,9 +77,9 @@ namespace MauiGyras.Platforms.Android
             _recognizerIntent.PutExtra(RecognizerIntent.ExtraCallingPackage, global::Android.App.Application.Context.PackageName);
             _recognizerIntent.PutExtra(RecognizerIntent.ExtraPartialResults, true);
             _recognizerIntent.PutExtra(RecognizerIntent.ExtraMaxResults, 1);
-            _recognizerIntent.PutExtra(RecognizerIntent.ExtraSpeechInputCompleteSilenceLengthMillis, 1000);
-            _recognizerIntent.PutExtra(RecognizerIntent.ExtraSpeechInputPossiblyCompleteSilenceLengthMillis, 1000);
-            _recognizerIntent.PutExtra(RecognizerIntent.ExtraSpeechInputMinimumLengthMillis, 5000);
+            _recognizerIntent.PutExtra(RecognizerIntent.ExtraSpeechInputCompleteSilenceLengthMillis, 1500);
+            _recognizerIntent.PutExtra(RecognizerIntent.ExtraSpeechInputPossiblyCompleteSilenceLengthMillis, 1500);
+            _recognizerIntent.PutExtra(RecognizerIntent.ExtraSpeechInputMinimumLengthMillis, 3000);
         }
 
         public void OnResults(Bundle results)
@@ -81,7 +87,7 @@ namespace MauiGyras.Platforms.Android
             ProcessResults(results);
             if (_isListening)
             {
-                _speechRecognizer.StartListening(_recognizerIntent);
+                RestartListening();
             }
         }
 
@@ -96,8 +102,32 @@ namespace MauiGyras.Platforms.Android
             if (matches?.Count > 0)
             {
                 var result = matches[0];
-                _onResult?.Invoke(result);
+                lock (_resultBuffer)
+                {
+                    _resultBuffer.Add(result);
+                }
             }
+        }
+
+        private async Task FlushBufferPeriodically()
+        {
+            while (_isListening)
+            {
+                await Task.Delay(BufferFlushInterval);
+                FlushBuffer();
+            }
+        }
+
+        private void FlushBuffer()
+        {
+            string result;
+            lock (_resultBuffer)
+            {
+                if (_resultBuffer.Count == 0) return;
+                result = string.Join(" ", _resultBuffer);
+                _resultBuffer.Clear();
+            }
+            _onResult?.Invoke(result);
         }
 
         public void OnError([GeneratedEnum] SpeechRecognizerError error)
@@ -110,16 +140,26 @@ namespace MauiGyras.Platforms.Android
                 case SpeechRecognizerError.SpeechTimeout:
                     if (_isListening)
                     {
-                        _speechRecognizer.StartListening(_recognizerIntent);
+                        RestartListening();
                     }
                     break;
                 case SpeechRecognizerError.NetworkTimeout:
                 case SpeechRecognizerError.Network:
-                    _onError?.Invoke(new Exception("Network error during speech recognition. Please check your internet connection."));
+                    _onError?.Invoke(new Exception("Network error during speech recognition. Attempting to reconnect..."));
+                    RestartListening();
                     break;
                 default:
                     _onError?.Invoke(new Exception($"Speech recognition error: {error}"));
                     break;
+            }
+        }
+
+        private async void RestartListening()
+        {
+            await Task.Delay(ReconnectionDelay);
+            if (_isListening)
+            {
+                _speechRecognizer?.StartListening(_recognizerIntent);
             }
         }
 
