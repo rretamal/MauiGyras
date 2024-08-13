@@ -64,9 +64,6 @@ namespace MauiGyras
 
                 if (!string.IsNullOrEmpty(listenedText))
                 {
-                    System.Diagnostics.Debug.WriteLine("*** partialText ***");
-                    System.Diagnostics.Debug.WriteLine(partialText);
-
                     _voiceRecognitionService_OnSpeechRecognized(this, partialText);
 
                     OnPropertyChanged(nameof(listenedText));
@@ -379,7 +376,7 @@ namespace MauiGyras
                 using (var paint = new SKPaint { IsAntialias = true })
                 {
                     // Enemy ship body
-                    paint.Color = new SKColor(192, 57, 43); // Rojo oscuro
+                    paint.Color = new SKColor(192, 57, 43); // Dark Red
                     var bodyPath = new SKPath();
                     bodyPath.MoveTo(-20, 15);
                     bodyPath.LineTo(20, 15);
@@ -388,7 +385,7 @@ namespace MauiGyras
                     canvas.DrawPath(bodyPath, paint);
 
                     // Enemy wings
-                    paint.Color = new SKColor(231, 76, 60); // Rojo claro
+                    paint.Color = new SKColor(231, 76, 60); // Red
                     var leftWing = new SKPath();
                     leftWing.MoveTo(-20, 15);
                     leftWing.LineTo(-40, 30);
@@ -404,7 +401,7 @@ namespace MauiGyras
                     canvas.DrawPath(rightWing, paint);
 
                     // Enemy cabin
-                    paint.Color = new SKColor(52, 152, 219); // Azul
+                    paint.Color = new SKColor(52, 152, 219); // Blue
                     canvas.DrawCircle(0, -5, 10, paint);
                 }
 
@@ -530,16 +527,6 @@ namespace MauiGyras
                         Console.WriteLine("Enemy hit!");
                         break;
                     }
-
-                    //if (Math.Abs(shotRelativeX - relativeX) < 50 &&
-                    //    Math.Abs(shotRelativeY - relativeY) < 50)
-                    //{
-                    //    activeShots.RemoveAt(i);
-                    //    enemies.RemoveAt(j);
-                    //    explosions.Add(new Explosion(enemy.X, enemy.Y));
-                    //    Console.WriteLine($"Enemy destroyed! Explosion added at ({enemy.X}, {enemy.Y})");
-                    //    break;
-                    //}
                 }
             }
 
